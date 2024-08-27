@@ -1,18 +1,17 @@
-[toolchain]
-
 [features]
 seeds = false
 skip-lint = false
 
 [programs.localnet]
-test = "u1Zz5LFn57tVpEye5VchngXKvThDu9FSGd1BEQJjjh1"
+transfer_sol = "4rz64UZebccmCfS5EZPSsPkraZNrYSdfqzbYgNtq8Roh"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "Localnet"
-wallet = 'C:\Users\parad\.config/solana/id.json'
+wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+client = "yarn run ts-node client/*.ts"
