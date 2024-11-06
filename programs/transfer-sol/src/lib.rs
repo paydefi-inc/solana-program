@@ -1,11 +1,16 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer as SplTransfer};
-use raydium_cp_swap::{cpi, program::RaydiumCpSwap, states::{AmmConfig, ObservationState, PoolState}};
+use anchor_spl::{associated_token::AssociatedToken, token::{Token, TokenAccount, Transfer as SplTransfer}};
 
-declare_id!("2ohN4V8zMjE63ggB777fSjWcDTWkqMsUvycjxzJKTEqp");
+pub mod amm_instruction;
+
+// devnet address
+declare_id!("Hbi7DiU48QgKSyJevjFraKak9fLXJea1uNrDLiwxJNkz");
 
 #[program]
-pub mod transfer_sol {
+pub mod paydefi {
+    use amm_instruction::swap_base_in;
+    use anchor_spl::token;
+    use solana_program::program::invoke;
     use super::*;
 
     pub fn complete_transfer_payment(ctx: Context<CompleteTransferPayment>, payment: Payment) -> Result<()> {
@@ -49,7 +54,6 @@ pub mod transfer_sol {
             pay_in_amount: payment.pay_in_amount,
             pay_out_amount: payment.pay_out_amount,
             fee_collected: payment.pay_in_amount - payment.pay_out_amount,
-            from: from_ata.key(),
             treasury: treasury_ata.key(),
             merchant: payment.merchant,
             payer: payer.key()
@@ -58,130 +62,114 @@ pub mod transfer_sol {
         Ok(())
     }
 
-    pub fn complete_transfer_donation(ctx: Context<CompleteTransferPayment>, payment: Payment) -> Result<()> {
-        let from_ata = &ctx.accounts.from_ata;
-        let to_ata = &ctx.accounts.to_ata;
-        let token_program = &ctx.accounts.token_program;
-        let payer = &ctx.accounts.payer;
-        let treasury_ata = &ctx.accounts.treasury_ata;
+    pub fn complete_swap_payment(ctx: Context<CompletePayment>, payment: Payment) -> Result<()> {
+        let accts: &mut CompletePayment<'_> = ctx.accounts;
 
+        let payer = &accts.payer;
+
+        let treasury_ata = &accts.treasury_ata;
+
+        // Ensure the transaction has not expired
         if Clock::get()?.unix_timestamp > payment.expiry {
             return Err(ErrorCode::PaymentExpired.into());
         }
+        //  Get initial to ata amount
+        let initial_ata_balance: u64 = accts.to_ata.amount;
 
-        if payment.pay_in_amount > payment.pay_out_amount {
-            let fee_amount = payment.pay_in_amount - payment.pay_out_amount;
-            let cpi_accounts_fee = SplTransfer {
-                from: from_ata.to_account_info(),
-                to: treasury_ata.to_account_info(),
-                authority: payer.to_account_info(),
-            };
-            let cpi_context_fee = CpiContext::new(token_program.to_account_info(), cpi_accounts_fee);
-            token::transfer(cpi_context_fee, fee_amount)?;
-        }
+        //  Swap pay_in_token to pay_out_token via Raydium CPI
+        let swap_ix = swap_base_in(
+            &accts.raydium_amm_program.key(),
+            &accts.amm_id.key(),
+            &accts.amm_authority.key(),
+            &accts.amm_open_orders.key(),
+            &accts.pool_coin_token_account.key(),
+            &accts.pool_pc_token_account.key(),
+            &accts.serum_program.key(),
+            &accts.serum_market.key(),
+            &accts.serum_bids.key(),
+            &accts.serum_asks.key(),
+            &accts.serum_event_queue.key(),
+            &accts.serum_coin_vault.key(),
+            &accts.serum_pc_vault.key(),
+            &accts.serum_vault_signer.key(),
+            &accts.from_ata.key(),
+            &accts.to_ata.key(),
+            &accts.payer.key(),
 
-        let cpi_accounts = SplTransfer {
-            from: from_ata.to_account_info(),
-            to: to_ata.to_account_info(),
-            authority: payer.to_account_info(),
-        };
-        let cpi_context = CpiContext::new(token_program.to_account_info(), cpi_accounts);
-        token::transfer(cpi_context, payment.pay_out_amount)?;
+            payment.pay_in_amount,
+            0, //  min_out
+        )?;
 
-        emit!(DonationCompleted {
-            order_id: payment.order_id.clone(),
+        invoke(
+            &swap_ix,
+            &[
+                accts.token_program.to_account_info(),
+                accts.amm_id.to_account_info(),
+                accts.amm_authority.to_account_info(),
+                accts.amm_open_orders.to_account_info(),
+                accts.pool_coin_token_account.to_account_info(),
+                accts.pool_pc_token_account.to_account_info(),
+                accts.serum_program.to_account_info(),
+                accts.serum_market.to_account_info(),
+                accts.serum_bids.to_account_info(),
+                accts.serum_asks.to_account_info(),
+                accts.serum_event_queue.to_account_info(),
+                accts.serum_coin_vault.to_account_info(),
+                accts.serum_pc_vault.to_account_info(),
+                accts.serum_vault_signer.to_account_info(),
+                accts.from_ata.to_account_info(),
+                accts.to_ata.to_account_info(),
+                accts.payer.to_account_info(),
+            ],
+        )?;
+
+        //  Get swap_out_amount
+        accts.to_ata.reload()?;
+        let to_ata_balance: u64 = accts.to_ata.amount;
+        let swap_out_amount = to_ata_balance - initial_ata_balance;
+        let fee_amount = swap_out_amount - payment.pay_out_amount;
+
+        //  Transfer fee to treasury
+        token::transfer(
+            CpiContext::new(
+                accts.token_program.to_account_info(),
+                token::Transfer {
+                    from: accts.to_ata.to_account_info(),
+                    to: accts.treasury_ata.to_account_info(),
+                    authority: accts.payer.to_account_info()
+                },
+            ),
+            fee_amount
+        )?;
+
+        //  Transfer rest to merchant
+        token::transfer(
+            CpiContext::new(
+                accts.token_program.to_account_info(),
+                token::Transfer {
+                    from: accts.to_ata.to_account_info(),
+                    to: accts.merchant_ata.to_account_info(),
+                    authority: accts.payer.to_account_info()
+                },
+            ),
+            payment.pay_out_amount
+        )?;
+
+        // Emit an event after the successful payment
+        emit!(SwapPaymentCompleted {
+            order_id: payment.order_id,
             pay_in_token: payment.pay_in_token,
             pay_out_token: payment.pay_out_token,
             pay_in_amount: payment.pay_in_amount,
             pay_out_amount: payment.pay_out_amount,
-            fee_collected: payment.pay_in_amount - payment.pay_out_amount,
-            from: from_ata.key(),
+            fee_collected: fee_amount,
             treasury: treasury_ata.key(),
-            merchant: payment.merchant,
+            merchant: accts.merchant.key(),
             payer: payer.key()
         });
 
         Ok(())
     }
-}
-
-pub fn complete_swap_payment(ctx: Context<CompleteSwapPayment>, payment: Payment) -> Result<()> {
-    let payer = &ctx.accounts.payer;
-    let from_ata = &ctx.accounts.from_ata;
-    // let payer_output_ata = &ctx.accounts.payer_output_ata;
-    let merchant_ata = &ctx.accounts.merchant_ata;
-    let treasury_ata = &ctx.accounts.treasury_ata;
-    let token_program = &ctx.accounts.token_program;
-
-    // Ensure the transaction has not expired
-    if Clock::get()?.unix_timestamp > payment.expiry {
-        return Err(ErrorCode::PaymentExpired.into());
-    }
-
-    // Step 1: Perform the swap
-    let swap_amount = payment.pay_in_amount;
-    let cpi_accounts = cpi::accounts::Swap {
-        payer: payer.to_account_info(),
-        authority: ctx.accounts.authority.to_account_info(),
-        amm_config: ctx.accounts.amm_config.to_account_info(),
-        pool_state: ctx.accounts.pool_state.to_account_info(),
-        input_token_account: from_ata.to_account_info(),
-        output_token_account: ctx.accounts.payer_output_ata.to_account_info(),
-        input_vault: ctx.accounts.input_vault.to_account_info(),
-        output_vault: ctx.accounts.output_vault.to_account_info(),
-        input_token_program: token_program.to_account_info(),
-        output_token_program: token_program.to_account_info(),
-        input_token_mint: ctx.accounts.input_mint.to_account_info(),
-        output_token_mint: ctx.accounts.output_mint.to_account_info(),
-        observation_state: ctx.accounts.observation_state.to_account_info(),
-    };
-    let cpi_context = CpiContext::new(ctx.accounts.cp_swap_program.to_account_info(), cpi_accounts);
-
-    // Swap tokens from from_ata to payer_output_ata
-    cpi::swap_base_input(cpi_context, swap_amount, 0)?;
-
-    // Step 2: Transfer pay_out_amount to the merchant
-    let cpi_accounts_transfer = SplTransfer {
-        from: ctx.accounts.payer_output_ata.to_account_info(),
-        to: merchant_ata.to_account_info(),
-        authority: payer.to_account_info(),
-    };
-    let cpi_context_transfer = CpiContext::new(token_program.to_account_info(), cpi_accounts_transfer);
-    token::transfer(cpi_context_transfer, payment.pay_out_amount)?;
-
-    // Reload the payer's output token account to get the updated balance
-    let payer_output_ata = &mut ctx.accounts.payer_output_ata;
-    payer_output_ata.reload()?;
-
-    // Step 3: Transfer fee to the treasury (if any)
-    let remaining_balance = payer_output_ata.amount;
-    let fee_amount = remaining_balance;
-
-    if fee_amount > 0 {
-        let cpi_accounts_fee = SplTransfer {
-            from: payer_output_ata.to_account_info(),
-            to: treasury_ata.to_account_info(),
-            authority: payer.to_account_info(),
-        };
-        let cpi_context_fee = CpiContext::new(token_program.to_account_info(), cpi_accounts_fee);
-        token::transfer(cpi_context_fee, fee_amount)?;
-    }
-
-    // Emit an event after the successful payment
-    emit!(SwapTransferCompleted {
-        order_id: payment.order_id.clone(),
-        pay_in_token: payment.pay_in_token,
-        pay_out_token: payment.pay_out_token,
-        pay_in_amount: payment.pay_in_amount,
-        pay_out_amount: payment.pay_out_amount,
-        fee_collected: fee_amount,
-        from: from_ata.key(),
-        treasury: treasury_ata.key(),
-        merchant: payment.merchant,
-        payer: payer.key()
-    });
-
-    Ok(())
 }
 
 #[derive(Accounts)]
@@ -196,63 +184,6 @@ pub struct CompleteTransferPayment<'info> {
     pub token_program: Program<'info, Token>
 }
 
-#[derive(Accounts)]
-#[instruction(payment: Payment)]
-pub struct CompleteSwapPayment<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-
-    // Payer's input token account (from which tokens will be swapped)
-    #[account(
-        mut,
-        constraint = from_ata.owner == payer.key(),
-    )]
-    pub from_ata: Account<'info, TokenAccount>,
-
-    // Payer's output token account (where swapped tokens are received)
-    #[account(
-        mut,
-        constraint = payer_output_ata.owner == payer.key(),
-    )]
-    pub payer_output_ata: Account<'info, TokenAccount>,
-
-    // Merchant's token account (receiving payment)
-    #[account(mut)]
-    pub merchant_ata: Account<'info, TokenAccount>,
-
-    // Treasury account for fee collection
-    #[account(mut)]
-    pub treasury_ata: Account<'info, TokenAccount>,
-
-    // Swap-related accounts
-    /// CHECK: Pool authority
-    pub authority: UncheckedAccount<'info>,
-
-    #[account(mut)]
-    pub pool_state: AccountLoader<'info, PoolState>,
-
-    #[account(address = pool_state.load()?.amm_config)]
-    pub amm_config: Box<Account<'info, AmmConfig>>,
-
-    #[account(mut)]
-    pub input_vault: Box<Account<'info, TokenAccount>>,
-
-    #[account(mut)]
-    pub output_vault: Box<Account<'info, TokenAccount>>,
-
-    #[account(mut, address = pool_state.load()?.observation_key)]
-    pub observation_state: AccountLoader<'info, ObservationState>,
-
-    pub cp_swap_program: Program<'info, RaydiumCpSwap>,
-
-    pub token_program: Program<'info, Token>,
-
-    // Mints
-    pub input_mint: Account<'info, Mint>,
-
-    pub output_mint: Account<'info, Mint>,
-}
-
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct Payment {
     pub order_id: String,
@@ -264,6 +195,86 @@ pub struct Payment {
     pub expiry: i64, // Unix timestamp for expiration
 }
 
+#[derive(Accounts)]
+pub struct CompletePayment<'info> {
+    #[account(mut)]
+    payer: Signer<'info>,
+
+    /// CHECK: token receiver
+    #[account(mut)]
+    merchant: AccountInfo<'info>,
+    /// CHECK: treasury wallet address
+    #[account(mut)]
+    treasury: AccountInfo<'info>,
+
+    #[account(mut)]
+    /// CHECK: raydium will check
+    amm_id: AccountInfo<'info>,
+    /// CHECK: raydium will check
+    amm_authority: AccountInfo<'info>,
+    /// CHECK: raydium will check
+    #[account(mut)]
+    amm_open_orders: AccountInfo<'info>,
+
+    #[account(mut)]
+    pool_coin_token_account: Box<Account<'info, TokenAccount>>,
+    
+    #[account(mut)]
+    pool_pc_token_account: Box<Account<'info, TokenAccount>>,
+  
+    #[account(mut)]
+    from_ata: Box<Account<'info, TokenAccount>>,
+  
+    #[account(mut)]
+    to_ata: Box<Account<'info, TokenAccount>>,
+    
+    #[account(mut)]
+    treasury_ata: Box<Account<'info, TokenAccount>>,
+
+    #[account(mut)]
+    merchant_ata: Box<Account<'info, TokenAccount>>,
+    
+    #[account(mut)]
+    /// CHECK: raydium will check
+    amm_target_orders: AccountInfo<'info>,
+
+    /// CHECK: raydium will check
+    serum_program: AccountInfo<'info>,
+    #[account(mut)]
+    /// CHECK: raydium will check
+    serum_market: AccountInfo<'info>,
+
+    #[account(mut)]
+    /// CHECK: raydium will check
+    serum_bids: AccountInfo<'info>,
+
+    #[account(mut)]
+    /// CHECK: raydium will check
+    serum_asks: AccountInfo<'info>,
+
+    #[account(mut)]
+    /// CHECK: raydium will check
+    serum_event_queue: AccountInfo<'info>,
+
+    #[account(mut)]
+    /// CHECK: raydium will check
+    serum_coin_vault: AccountInfo<'info>,
+
+    #[account(mut)]
+    /// CHECK: raydium will check
+    serum_pc_vault: AccountInfo<'info>,
+
+    /// CHECK: raydium will check
+    serum_vault_signer: AccountInfo<'info>,
+
+    /// CHECK: raydium will check
+    raydium_amm_program: AccountInfo<'info>,
+    token_program: Program<'info, Token>,
+    associated_token_program: Program<'info, AssociatedToken>,
+    system_program: Program<'info, System>,
+    rent: Sysvar<'info, Rent>,
+}
+
 #[event]
 pub struct PaymentCompleted {
     pub order_id: String,
@@ -272,48 +283,26 @@ pub struct PaymentCompleted {
     pub pay_in_amount: u64,
     pub pay_out_amount: u64,
     pub fee_collected: u64,
-    pub from: Pubkey,
     pub treasury: Pubkey,
     pub merchant: Pubkey,
-    pub payer: Pubkey
+    pub payer: Pubkey,
 }
 
 #[event]
-pub struct DonationCompleted {
+pub struct SwapPaymentCompleted {
     pub order_id: String,
     pub pay_in_token: Pubkey,
     pub pay_out_token: Pubkey,
     pub pay_in_amount: u64,
     pub pay_out_amount: u64,
     pub fee_collected: u64,
-    pub from: Pubkey,
     pub treasury: Pubkey,
     pub merchant: Pubkey,
-    pub payer: Pubkey
-}
-
-#[event]
-pub struct SwapTransferCompleted {
-    pub order_id: String,
-    pub pay_in_token: Pubkey,
-    pub pay_out_token: Pubkey,
-    pub pay_in_amount: u64,
-    pub pay_out_amount: u64,
-    pub fee_collected: u64,
-    pub from: Pubkey,
-    pub treasury: Pubkey,
-    pub merchant: Pubkey,
-    pub payer: Pubkey
+    pub payer: Pubkey,
 }
 
 #[error_code]
 pub enum ErrorCode {
     #[msg("The payment has expired.")]
     PaymentExpired,
-
-    #[msg("Swap failed.")]
-    SwapFailed,
-
-    #[msg("Insufficient funds in payer's output token account.")]
-    InsufficientFunds,
 }

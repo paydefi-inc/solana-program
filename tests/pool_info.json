@@ -1,0 +1,32 @@
+{
+    "name": "Raydium Mainnet Liquidity Pools",
+    "official": [
+        {
+            "id": "5zWjRZZVQHpDriHKBLJeBjTdE3rUo3qGqXv1UmriBXVT",
+            "baseMint": "So11111111111111111111111111111111111111112",
+            "quoteMint": "BakLYNXdUFiSKKm14HESawEpiMe8z9Tr3ynKKV1CFXZ6",
+            "lpMint": "7KgAyoTCtTG9t5CZ8XpnnneNUxG4nT6iaczyuzkqoyjA",
+            "baseDecimals": 9,
+            "quoteDecimals": 9,
+            "lpDecimals": 9,
+            "version": 4,
+            "programId": "HWy1jotHpo6UqeQxx49dpYYdQB8wj9Qk9MdxwjLvDHB8",
+            "authority": "DbQqP6ehDYmeYjcBaMRuA8tAJY1EjDUz9DpwSLjaQqfC",
+            "openOrders": "Ag8rKn51jaNDRE1tmstihoQzdSwnr7RrieMmAcN1RZ9k",
+            "targetOrders": "2oPXjrngivyWZ7LrAZNkiefst2WC1XX57Q3E1j9MkY5z",
+            "baseVault": "8wS6PhxLJwsHcqDu8ZARaxP7kH4M88y4juq55yp5DNdk",
+            "quoteVault": "FaHiT883DFfSgxPC3AhajWbMEGameviz9WJCoog72ZCb",
+            "withdrawQueue": "2fvdtnnjmUxgWr79xT5kXPYeFJNUnXiCPtNvMGAnRY8q",
+            "lpVault": "CoR59vgLzHNLZxygyAZhq1DhG8fejm6ikhyRBxyTs35a",
+            "marketVersion": 4,
+            "marketProgramId": "EoTcMgcDRTJVZDMZWBoU6rhYHZfkNTVEAfz3uUJRcYGj",
+            "marketId": "J1oKpxWJFHwSEHyfVfQ5eGKz2RnUUpZjYAbGBVhU8xgM",
+            "marketAuthority": "5VYSPVC6hbzeFshEqpi69CiRFGoWzq1tqvystgxgenDb",
+            "marketBaseVault": "9k3mVHCxAY7dzMTTMBNjTusR1o44EAMhpKWqz5HV8Zgn",
+            "marketQuoteVault": "4PUzsXM54v64M98piWYcHB7aZ6NVnYExWVefJn3A1chi",
+            "marketBids": "6secaBXnPLiUJAUxkXh6wUfyExQ5A3kf6u17BoKH4d56",
+            "marketAsks": "8bHMujonva1YR3RUEBHPmybwhEKiQvAn3iZSLMpmknsf",
+            "marketEventQueue": "B4LWW8oAadC7drapWuDNt2tfP5DCpyxSoq8axczH3jak"
+        }
+    ]
+}
