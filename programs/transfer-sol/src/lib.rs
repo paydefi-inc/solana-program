@@ -1,10 +1,21 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{associated_token::AssociatedToken, token::{Token, TokenAccount, Transfer as SplTransfer}};
+use solana_security_txt::security_txt;
 
 pub mod amm_instruction;
 
 // devnet address
 declare_id!("Hbi7DiU48QgKSyJevjFraKak9fLXJea1uNrDLiwxJNkz");
+
+#[cfg(not(feature = "no-entrypoint"))]
+security_txt! {
+    name: "Paydefi",
+    project_url: "https://paydefi.io/",
+    contacts: "email:ich@paydefi.io",
+    policy: "https://github.com/paydefi-inc/solana-program/blob/main/SECURITY.md",
+    preferred_languages: "en",
+    source_code: "https://github.com/paydefi-inc/solana-program"
+}
 
 #[program]
 pub mod paydefi {

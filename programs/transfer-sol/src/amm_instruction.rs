@@ -12,7 +12,6 @@ use solana_program::{
 use std::convert::TryInto;
 use std::mem::size_of;
 
-// ToDo:: change on prod
 solana_program::declare_id!("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8");
 
 #[repr(C)]
