@@ -1,0 +1,1 @@
+We do not pay a bug bounty.
