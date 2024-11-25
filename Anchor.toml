@@ -5,15 +5,17 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-paydefi = "Hbi7DiU48QgKSyJevjFraKak9fLXJea1uNrDLiwxJNkz"
+paydefi = "9h28bufpmroECYYyceyc67fkgbrXddEgaSHQTsv5nqv9"
+
+[programs.mainnet]
+paydefi = "9h28bufpmroECYYyceyc67fkgbrXddEgaSHQTsv5nqv9"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-
-cluster = "devnet"
-wallet = "./key/key.json"
+cluster = "mainnet"
+wallet = "./keys/mainnet.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

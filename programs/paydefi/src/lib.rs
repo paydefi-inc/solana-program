@@ -4,8 +4,7 @@ use solana_security_txt::security_txt;
 
 pub mod amm_instruction;
 
-// devnet address
-declare_id!("Hbi7DiU48QgKSyJevjFraKak9fLXJea1uNrDLiwxJNkz");
+declare_id!("9h28bufpmroECYYyceyc67fkgbrXddEgaSHQTsv5nqv9");
 
 #[cfg(not(feature = "no-entrypoint"))]
 security_txt! {
