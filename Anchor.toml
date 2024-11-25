@@ -5,10 +5,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-paydefi = "9h28bufpmroECYYyceyc67fkgbrXddEgaSHQTsv5nqv9"
+paydefi = "Ea3YcYPZ7ZgGmxbyu31Fw5UQrv867c3AWXrKUGn6yupP"
 
 [programs.mainnet]
-paydefi = "9h28bufpmroECYYyceyc67fkgbrXddEgaSHQTsv5nqv9"
+paydefi = "Ea3YcYPZ7ZgGmxbyu31Fw5UQrv867c3AWXrKUGn6yupP"
 
 [registry]
 url = "https://api.apr.dev"

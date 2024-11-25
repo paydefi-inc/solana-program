@@ -4,7 +4,7 @@ use solana_security_txt::security_txt;
 
 pub mod amm_instruction;
 
-declare_id!("9h28bufpmroECYYyceyc67fkgbrXddEgaSHQTsv5nqv9");
+declare_id!("Ea3YcYPZ7ZgGmxbyu31Fw5UQrv867c3AWXrKUGn6yupP");
 
 #[cfg(not(feature = "no-entrypoint"))]
 security_txt! {
