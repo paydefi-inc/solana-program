@@ -16,6 +16,8 @@ security_txt! {
     source_code: "https://github.com/paydefi-inc/solana-program"
 }
 
+const FEE_DENOMINATOR: u32 = 10000;
+
 #[program]
 pub mod paydefi {
     use amm_instruction::swap_base_in;
@@ -65,6 +67,107 @@ pub mod paydefi {
             pay_out_amount: payment.pay_out_amount,
             fee_collected: payment.pay_in_amount - payment.pay_out_amount,
             treasury: treasury_ata.key(),
+            merchant: payment.merchant,
+            payer: payer.key()
+        });
+
+        Ok(())
+    }
+
+    pub fn complete_transfer_payment_with_fee(
+        ctx: Context<CompleteTransferPaymentWithFee>,
+        payment: Payment,
+        percentages: [u32; 8],
+    ) -> Result<()> {
+        let from_ata = &ctx.accounts.from_ata;
+        let to_ata = &ctx.accounts.to_ata;
+        let token_program = &ctx.accounts.token_program;
+        let payer = &ctx.accounts.payer;
+
+        // Ensure the transaction has not expired
+        if Clock::get()?.unix_timestamp > payment.expiry {
+            return Err(ErrorCode::PaymentExpired.into());
+        }
+
+        let receivers = [
+            &ctx.accounts.receiver1,
+            &ctx.accounts.receiver2,
+            &ctx.accounts.receiver3,
+            &ctx.accounts.receiver4,
+            &ctx.accounts.receiver5,
+            &ctx.accounts.receiver6,
+            &ctx.accounts.receiver7,
+            &ctx.accounts.receiver8,
+        ];
+
+        let mut fee_received: [u64; 8] = [0; 8];
+
+        // Transfer fee to the treasury account if there is any fee
+        if payment.pay_in_amount > payment.pay_out_amount {
+            // Check that the percentages sum up to 100 or less
+            let total_percentage: u32 = percentages.iter().sum();
+            require!(total_percentage == FEE_DENOMINATOR, ErrorCode::InvalidPercentage);
+
+            let total_fee_amount = payment.pay_in_amount - payment.pay_out_amount;
+            // Distribute tokens to each receiver
+            for i in 0..8 {
+                if percentages[i] > 0 {
+                    let fee_amount = (total_fee_amount as u64 * percentages[i] as u64 / FEE_DENOMINATOR as u64) as u64;
+
+                    // Skip if amount is zero
+                    if fee_amount == 0 {
+                        continue;
+                    }
+
+                    fee_received[i] = fee_amount;
+
+                    // Transfer tokens to the receiver
+                    let receiver_ata = receivers[i];
+
+                    let cpi_accounts_fee = SplTransfer {
+                        from: from_ata.to_account_info(),
+                        to: receiver_ata.to_account_info(),
+                        authority: payer.to_account_info(),
+                    };
+                    let cpi_context_fee = CpiContext::new(token_program.to_account_info(), cpi_accounts_fee);
+                    token::transfer(cpi_context_fee, fee_amount)?;
+                }
+            }
+        }
+
+        // Transfer tokens from payer to merchant
+        let cpi_accounts = SplTransfer {
+            from: from_ata.to_account_info(),
+            to: to_ata.to_account_info(),
+            authority: payer.to_account_info(),
+        };
+        let cpi_context = CpiContext::new(token_program.to_account_info(), cpi_accounts);
+        token::transfer(cpi_context, payment.pay_out_amount)?;
+
+        // Emit an event after the successful payment
+        emit!(PaymentCompletedAndFeeDistributed {
+            order_id: payment.order_id.clone(),
+            pay_in_token: payment.pay_in_token,
+            pay_out_token: payment.pay_out_token,
+            pay_in_amount: payment.pay_in_amount,
+            pay_out_amount: payment.pay_out_amount,
+            fee_collected: payment.pay_in_amount - payment.pay_out_amount,
+            fee_receiver1: receivers[0].key(),
+            fee_receiver2: receivers[1].key(),
+            fee_receiver3: receivers[2].key(),
+            fee_receiver4: receivers[3].key(),
+            fee_receiver5: receivers[4].key(),
+            fee_receiver6: receivers[5].key(),
+            fee_receiver7: receivers[6].key(),
+            fee_receiver8: receivers[7].key(),
+            fee_received1: fee_received[0],
+            fee_received2: fee_received[1],
+            fee_received3: fee_received[2],
+            fee_received4: fee_received[3],
+            fee_received5: fee_received[4],
+            fee_received6: fee_received[5],
+            fee_received7: fee_received[6],
+            fee_received8: fee_received[7],
             merchant: payment.merchant,
             payer: payer.key()
         });
@@ -206,6 +309,32 @@ pub struct Payment {
 }
 
 #[derive(Accounts)]
+pub struct CompleteTransferPaymentWithFee<'info> {
+    pub payer: Signer<'info>,
+    #[account(mut)]
+    pub from_ata: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub to_ata: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub receiver1: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub receiver2: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub receiver3: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub receiver4: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub receiver5: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub receiver6: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub receiver7: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub receiver8: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
 pub struct CompletePayment<'info> {
     #[account(mut)]
     payer: Signer<'info>,
@@ -299,6 +428,34 @@ pub struct PaymentCompleted {
 }
 
 #[event]
+pub struct PaymentCompletedAndFeeDistributed {
+    pub order_id: String,
+    pub pay_in_token: Pubkey,
+    pub pay_out_token: Pubkey,
+    pub pay_in_amount: u64,
+    pub pay_out_amount: u64,
+    pub fee_collected: u64,
+    pub fee_receiver1: Pubkey,
+    pub fee_receiver2: Pubkey,
+    pub fee_receiver3: Pubkey,
+    pub fee_receiver4: Pubkey,
+    pub fee_receiver5: Pubkey,
+    pub fee_receiver6: Pubkey,
+    pub fee_receiver7: Pubkey,
+    pub fee_receiver8: Pubkey,
+    pub fee_received1: u64,
+    pub fee_received2: u64,
+    pub fee_received3: u64,
+    pub fee_received4: u64,
+    pub fee_received5: u64,
+    pub fee_received6: u64,
+    pub fee_received7: u64,
+    pub fee_received8: u64,
+    pub merchant: Pubkey,
+    pub payer: Pubkey,
+}
+
+#[event]
 pub struct SwapPaymentCompleted {
     pub order_id: String,
     pub pay_in_token: Pubkey,
@@ -315,4 +472,10 @@ pub struct SwapPaymentCompleted {
 pub enum ErrorCode {
     #[msg("The payment has expired.")]
     PaymentExpired,
+    #[msg("The total fee percentages exceed 100%.")]
+    InvalidFeeDistribution,
+    #[msg("Fee percentage calculation overflowed.")]
+    FeePercentageOverflow,
+    #[msg("Invalid percentage, must sum to 100 or less.")]
+    InvalidPercentage,
 }
